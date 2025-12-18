@@ -7,7 +7,7 @@
 > **A latency-optimized, autonomous AI agent that performs real-time technical analysis and news synthesis for the Colombo Stock Exchange (CSE).**
 
 <p align="center">
-  <img src="https://github.com/LasithaAmarasinghe/CSE-Smart-Scout/blob/main/resources/demo.gif" alt="Demo GIF" />
+  <img src="https://github.com/LasithaAmarasinghe/CSE-Smart-Scout/blob/main/resources/demo.gif" alt="Demo GIF" width="70%" />
 </p>
 
 ---
