@@ -32,7 +32,7 @@ The Sri Lankan financial market suffers from a **Data Accessibility Gap**.
 **The Engineering Solution:**
 I performed **Network Traffic Analysis** on the official `cse.lk` website using browser developer tools. I identified their internal private API endpoints, reverse-engineered the payload structure, and wrote a custom Python wrapper (`cse_tools.py`) that mimics a legitimate browser session (Stealth Headers) to fetch tick-by-tick data directly from the source.
 
-### Challenge 2: The "Cricket" Hallucination
+### Challenge 2: Hallucination
 **The Failure:** When asked about "Dialog", the agent would often return news about the Sri Lankan Cricket Team (sponsored by Dialog) or unrelated companies in Pakistan (due to keyword overlap in generic news scrapers).
 
 **The Engineering Solution:**
