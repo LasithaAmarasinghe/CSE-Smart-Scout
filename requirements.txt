@@ -1,0 +1,17 @@
+# Orchestration & AI
+langgraph
+langchain
+langchain-groq
+langchain-core
+
+# Web UI
+streamlit
+
+# Tools & APIs
+tavily-python
+python-dotenv
+requests
+
+# Optional (Legacy support if you switch back)
+# duckduckgo-search
+# yfinance

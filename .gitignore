@@ -1,0 +1,23 @@
+# --- 1. SECURITY (CRITICAL) ---
+# Never track API keys
+.env
+.env.local
+
+# --- 2. Python ---
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- 3. Virtual Environments ---
+# Depending on what you named it
+venv/
+env/
+.venv/
+.env
+
+# --- 4. OS & Editor Junk ---
+.DS_Store
+.vscode/
+.idea/
