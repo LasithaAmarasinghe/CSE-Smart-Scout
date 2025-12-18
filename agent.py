@@ -23,6 +23,15 @@ class State(TypedDict):
 # Using Llama-3-70b for best reasoning
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
+SYSTEM_INSTRUCTIONS = """You are a Senior Financial Analyst for the Colombo Stock Exchange (CSE).
+
+CORE RULES:
+1. **Context is King:** Only answer questions about Sri Lankan stocks.
+2. **Anti-Hallucination:** If the Search Tool returns news about "Cricket" (e.g., Pramodaya Wickramasinghe), "Pakistan" (e.g., PICIC, Crescent Star), or unrelated companies, YOU MUST IGNORE IT.
+3. **Honesty:** If the news is irrelevant, explicitly say: "No relevant financial news found."
+4. **Formatting:** Always show the price clearly in LKR.
+"""
+
 # Bind the tools so the LLM knows they exist
 tools = [get_cse_stock_price, search_market_news]
 llm_with_tools = llm.bind_tools(tools)
@@ -32,7 +41,16 @@ llm_with_tools = llm.bind_tools(tools)
 def chatbot_node(state: State):
     """Decides what to do next."""
     print("--- DEBUG: Brain is Thinking... ---")
-    return {"messages": [llm_with_tools.invoke(state["messages"])]}
+    
+    # 1. Get the current conversation history
+    messages = state["messages"]
+    
+    # 2. Prepend the System Instructions
+    # We create a temporary list so we don't mess up the actual chat history in the UI
+    messages_with_rules = [SystemMessage(content=SYSTEM_INSTRUCTIONS)] + messages
+    
+    # 3. Invoke the LLM with the Rules + History
+    return {"messages": [llm_with_tools.invoke(messages_with_rules)]}
 
 def tool_node(state: State):
     """Executes the tools."""
