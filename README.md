@@ -1,4 +1,4 @@
-# 🇱🇰 CSE Smart Scout: Agentic Financial Analyst
+# CSE Smart Scout: Agentic Financial Analyst
 
 ![Status](https://img.shields.io/badge/Status-Prototype-green)
 ![Tech](https://img.shields.io/badge/AI-Agentic_Workflow-blue)
@@ -51,22 +51,10 @@ I switched the inference engine to **Llama-3-70b via Groq's LPU (Language Proces
 
 ## 🏗️ Architecture
 
-```mermaid
-graph TD
-    User(User Query) --> Router{Router}
-    Router -->|Needs Data| Agent(Llama-3-70b Brain)
-    
-    subgraph "Tool Belt"
-        Agent -->|Call| Scraper[Custom CSE Scraper]
-        Agent -->|Call| Search[Tavily News Search]
-    end
-    
-    Scraper -->|Raw JSON| Agent
-    Search -->|Context| Agent
-    
-    Agent -->|Synthesize| Response(Final Answer)
-    Response --> User
-```
+![pipeline](resources/pipeline.png)
+
+---
+
 ## 🛠️ Tech Stack
 
 | Component        | Technology        | Reasoning |
@@ -76,6 +64,8 @@ graph TD
 | Model            | Llama-3.3-70b     | The sweet spot between reasoning capability (comparable to GPT-4) and open-source availability. |
 | Frontend         | Streamlit         | Provides a "Glass Box" UI where users can expand the "Reasoning" tab to see the agent's thought process. |
 | Search           | Tavily API        | Optimized specifically for RAG/Agents, reducing noise in search results. |
+
+---
 
 ## ⚡ Quick Start
 
@@ -107,6 +97,8 @@ graph TD
    ```bash
    streamlit run app.py
    ```
+
+---
 
 ## 📸 Example Workflow
 
