@@ -5,18 +5,67 @@ import random
 from datetime import datetime
 from dotenv import load_dotenv
 from tavily import TavilyClient # Ensure you pip installed this: pip install tavily-python
+from difflib import get_close_matches
 
 # --- CONFIGURATION ---
 
 load_dotenv()
 api_key = os.getenv("TAVILY_API_KEY")
 
+# --- KNOWLEDGE BASE ---
+# A mapping of common names/keywords to their CSE Ticker
+CSE_TICKER_MAP = {
+    "john keells": "JKH",
+    "jkh": "JKH",
+    "keells": "JKH",
+    "dialog": "DIAL",
+    "dialog axiata": "DIAL",
+    "commercial bank": "COMB",
+    "comb": "COMB",
+    "sampath": "SAMP",
+    "sampath bank": "SAMP",
+    "hatton": "HNB",
+    "hnb": "HNB",
+    "hayleys": "HAYL",
+    "sri lanka telecom": "SLTL",
+    "slt": "SLTL",
+    "lanka ioc": "LIOC",
+    "lioc": "LIOC",
+    "melstacorp": "MELS",
+    "lolc": "LOLC",
+    "hemas": "HHL",
+    "access engineering": "AEL",
+    "softlogic": "SHL"
+}
+
+def resolve_ticker(user_input: str) -> str:
+    """
+    Smartly converts 'John Keells' -> 'JKH'.
+    Uses exact lookup first, then fuzzy matching.
+    """
+    clean_input = user_input.lower().strip()
+    
+    # 1. Direct Lookup
+    if clean_input in CSE_TICKER_MAP:
+        return CSE_TICKER_MAP[clean_input]
+    
+    # 2. Fuzzy Match (Finds 'Dialog' if user types 'Dialg')
+    matches = get_close_matches(clean_input, CSE_TICKER_MAP.keys(), n=1, cutoff=0.6)
+    if matches:
+        return CSE_TICKER_MAP[matches[0]]
+    
+    # 3. Fallback: Assume the user actually typed a ticker (e.g. 'DIST')
+    return user_input.upper()
+
+
 def get_cse_stock_price(ticker: str):
     """
     Fetches stock price from CSE with 'Stealth Mode'.
     """
-    cse_symbol = f"{ticker.upper()}.N0000"
-    print(f"DEBUG: 🔍 Attempting to fetch {cse_symbol}...")
+    real_ticker = resolve_ticker(ticker)
+    
+    cse_symbol = f"{real_ticker.upper()}.N0000"
+    print(f"DEBUG: 🔍 Resolved '{ticker}' to '{cse_symbol}'...")
 
     url = "https://www.cse.lk/api/companyInfoSummery"
     payload = {"symbol": cse_symbol}
