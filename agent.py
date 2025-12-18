@@ -9,7 +9,7 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import ToolMessage, SystemMessage, AIMessage
 
 # --- IMPORT YOUR TOOLS ---
-from cse_tools import get_cse_stock_price, search_market_news
+from cse_tools import get_cse_stock_price, search_market_news, get_market_overview
 
 # --- 1. SETUP ---
 # Ensure API Key is present
@@ -33,7 +33,7 @@ CORE RULES:
 """
 
 # Bind the tools so the LLM knows they exist
-tools = [get_cse_stock_price, search_market_news]
+tools = [get_cse_stock_price, search_market_news, get_market_overview]
 llm_with_tools = llm.bind_tools(tools)
 
 # --- 3. NODES ---
@@ -66,11 +66,12 @@ def tool_node(state: State):
         try:
             if tool_call["name"] == "get_cse_stock_price":
                 result = get_cse_stock_price(tool_call["args"]["ticker"])
-                
             elif tool_call["name"] == "search_market_news":
                 # Handle cases where 'query' argument might be missing or named differently
                 q = tool_call["args"].get("query", "Sri Lanka Market News")
                 result = search_market_news(q)
+            elif tool_call["name"] == "get_market_overview":
+                result = get_market_overview()
             else:
                 result = f"Error: Tool '{tool_call['name']}' not found."
                 

@@ -62,10 +62,20 @@ def get_cse_stock_price(ticker: str):
     """
     Fetches stock price from CSE with 'Stealth Mode'.
     """
-    real_ticker = resolve_ticker(ticker)
+    # 1. Resolve the name (e.g., "John Keells" -> "JKH")
+    clean_ticker = resolve_ticker(ticker)
     
-    cse_symbol = f"{real_ticker.upper()}.N0000"
-    print(f"DEBUG: 🔍 Resolved '{ticker}' to '{cse_symbol}'...")
+    # 2. Add Suffix SAFELY (The Fix)
+    # Check if it already has the suffix to prevent "JKH.N0000.N0000"
+    if not clean_ticker.endswith(".N0000"):
+        cse_symbol = f"{clean_ticker}.N0000"
+    else:
+        cse_symbol = clean_ticker
+        
+    # Standardize to uppercase just in case
+    cse_symbol = cse_symbol.upper()
+    
+    print(f"DEBUG: 🔍 Hitting CSE Official API for {cse_symbol}...")
 
     url = "https://www.cse.lk/api/companyInfoSummery"
     payload = {"symbol": cse_symbol}
@@ -145,6 +155,26 @@ def search_market_news(query: str):
     except Exception as e:
         print(f"⚠️ TAVILY ERROR: {e}")
         return "News search failed. Please verify API Key."
+
+def get_market_overview():
+    """
+    Fetches the current Top 5 companies by Market Cap.
+    """
+    print("DEBUG: 🌐 Fetching Top 5 List...")
+    
+    tavily = TavilyClient(api_key=api_key)
+    # We use a very specific query to get a table/list result
+    response = tavily.search(
+        query="largest listed companies Sri Lanka CSE market capitalization list 2025", 
+        search_depth="advanced",
+        topic="news"
+    )
+    
+    summary = "Current Market Leaders (Source: Tavily):\n"
+    for result in response.get('results', []):
+        summary += f"- {result['title']}: {result['content']}\n"
+        
+    return summary
 
 # --- TEST BLOCK ---
 if __name__ == "__main__":
