@@ -6,8 +6,17 @@
 
 > **A latency-optimized, autonomous AI agent that performs real-time technical analysis and news synthesis for the Colombo Stock Exchange (CSE).**
 
+<p align="center">
+  <img src="https://github.com/LasithaAmarasinghe/Verifiable-RAG-Assistant/blob/main/resources/demo.gif" alt="Demo GIF" />
+</p>
+
 ---
 
+## 🏗️ Architecture
+
+![pipeline](resources/pipeline.png)
+
+---
 ## 🚀 The Problem
 The Sri Lankan financial market suffers from a **Data Accessibility Gap**.
 1.  **No Public API:** The CSE does not offer a modern public API for developers.
@@ -49,11 +58,6 @@ I switched the inference engine to **Llama-3-70b via Groq's LPU (Language Proces
 
 ---
 
-## 🏗️ Architecture
-
-![pipeline](resources/pipeline.png)
-
----
 
 ## 🛠️ Tech Stack
 
