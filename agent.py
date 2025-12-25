@@ -1,142 +1,159 @@
 import os
-import json
-from typing import Annotated, Literal
-from typing_extensions import TypedDict
+import operator
+from typing import Annotated, Sequence, TypedDict, Literal
 from dotenv import load_dotenv
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
 from langchain_groq import ChatGroq
-from langchain_core.messages import ToolMessage, SystemMessage, AIMessage
+from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
+from pydantic import BaseModel
 
-# --- IMPORT YOUR TOOLS ---
-from cse_tools import get_cse_stock_price, search_market_news, get_market_overview
+# --- IMPORT TOOLS ---
+from cse_tools import get_cse_stock_price, web_search, get_technical_indicators
 
-# --- 1. SETUP ---
-# Ensure API Key is present
 load_dotenv()
-api_key = os.getenv("GROQ_API_KEY") 
 
-class State(TypedDict):
-    messages: Annotated[list, add_messages]
-
-# --- 2. THE BRAIN ---
-# Using Llama-3-70b for best reasoning
+# --- 1. MODEL CONFIGURATION ---
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
-SYSTEM_INSTRUCTIONS = """You are a Senior Financial Analyst for the Colombo Stock Exchange (CSE).
+# --- 2. AGENT STATE ---
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], operator.add]
+    next: str
+    sender: str
 
-CORE RULES:
-1. **Context is King:** Only answer questions about Sri Lankan stocks.
-2. **Anti-Hallucination:** If the Search Tool returns news about "Cricket" (e.g., Pramodaya Wickramasinghe), "Pakistan" (e.g., PICIC, Crescent Star), or unrelated companies, YOU MUST IGNORE IT.
-3. **Honesty:** If the news is irrelevant, explicitly say: "No relevant financial news found."
-4. **Formatting:** Always show the price clearly in LKR.
-"""
+# --- 3. HELPER ---
+def create_agent(llm, tools, system_message: str):
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_message),
+        MessagesPlaceholder(variable_name="messages"),
+    ])
+    if tools:
+        return prompt | llm.bind_tools(tools)
+    return prompt | llm
 
-# Bind the tools so the LLM knows they exist
-tools = [get_cse_stock_price, search_market_news, get_market_overview]
-llm_with_tools = llm.bind_tools(tools)
+# --- 4. AGENTS (ANTI-LOOP PROMPTS) ---
 
-# --- 3. NODES ---
+# -- Technical Analyst --
+analyst_agent = create_agent(
+    llm,
+    [get_cse_stock_price, get_technical_indicators],
+    "You are a Technical Analyst. "
+    "RULES:"
+    "1. Fetch data using tools."
+    "2. IF you already see the tool output in the chat history, DO NOT call the tool again."
+    "3. SUMMARIZE the data immediately in plain English."
+    "4. Your job is DONE after the summary."
+)
 
-def chatbot_node(state: State):
-    """Decides what to do next."""
-    print("--- DEBUG: Brain is Thinking... ---")
-    
-    # 1. Get the current conversation history
+# -- Market Researcher --
+researcher_agent = create_agent(
+    llm,
+    [web_search],
+    "You are a Market Researcher. "
+    "1. Search for news using 'web_search'."
+    "2. Summarize the headlines."
+    "3. Do not ask follow-up questions. Just report."
+)
+
+# --- 5. NODES ---
+
+def analyst_node(state):
+    result = analyst_agent.invoke(state)
+    if isinstance(result, AIMessage):
+        result.name = "Technical_Analyst"
+    return {"messages": [result], "sender": "Technical_Analyst"}
+
+def researcher_node(state):
+    result = researcher_agent.invoke(state)
+    if isinstance(result, AIMessage):
+        result.name = "Market_Researcher"
+    return {"messages": [result], "sender": "Market_Researcher"}
+
+# --- 6. SUPERVISOR (STRICT FINISH LOGIC) ---
+
+class RouteResponse(BaseModel):
+    next: Literal["Technical_Analyst", "Market_Researcher", "FINISH"]
+
+def supervisor_node(state):
     messages = state["messages"]
     
-    # 2. Prepend the System Instructions
-    # We create a temporary list so we don't mess up the actual chat history in the UI
-    messages_with_rules = [SystemMessage(content=SYSTEM_INSTRUCTIONS)] + messages
+    # AGGRESSIVE PROMPT TO STOP LOOPS
+    system_prompt = (
+        "You are a Supervisor. "
+        "CRITICAL ROUTING RULES:"
+        "1. If the last message is a TEXT response from a worker (Technical_Analyst or Market_Researcher), you MUST output 'FINISH'."
+        "2. ONLY route back to a worker if the user's request is strictly INCOMPLETE (e.g. asked for 2 stocks, only got 1)."
+        "3. DO NOT output 'Technical_Analyst' just to say 'Is there anything else?'."
+        "4. When in doubt, output 'FINISH'."
+    )
     
-    # 3. Invoke the LLM with the Rules + History
-    return {"messages": [llm_with_tools.invoke(messages_with_rules)]}
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder(variable_name="messages"),
+        ("system", "Who should act next? Select: Technical_Analyst, Market_Researcher, FINISH.")
+    ])
+    
+    chain = prompt | llm.with_structured_output(RouteResponse)
+    
+    try:
+        result = chain.invoke({"messages": messages})
+        if not result or not result.next:
+            return {"next": "FINISH"}
+        return {"next": result.next}
+    except Exception:
+        return {"next": "FINISH"}
 
-def tool_node(state: State):
-    """Executes the tools."""
+# --- 7. GUARDRAIL ---
+def compliance_node(state):
     messages = state["messages"]
-    last_message = messages[-1]
-    
-    tool_outputs = []
-    
-    # Iterate through all tool calls the LLM requested
-    for tool_call in last_message.tool_calls:
-        print(f"--- DEBUG: Executing Tool '{tool_call['name']}' ---")
-        
-        try:
-            if tool_call["name"] == "get_cse_stock_price":
-                result = get_cse_stock_price(tool_call["args"]["ticker"])
-            elif tool_call["name"] == "search_market_news":
-                # Handle cases where 'query' argument might be missing or named differently
-                q = tool_call["args"].get("query", "Sri Lanka Market News")
-                result = search_market_news(q)
-            elif tool_call["name"] == "get_market_overview":
-                result = get_market_overview()
-            else:
-                result = f"Error: Tool '{tool_call['name']}' not found."
-                
-        except Exception as e:
-            result = f"Error executing tool: {str(e)}"
+    last_msg = messages[-1]
+    if isinstance(last_msg, AIMessage) and last_msg.content:
+        risk_terms = ["buy", "sell", "invest", "guarantee", "profit"]
+        if any(term in last_msg.content.lower() for term in risk_terms):
+            disclaimer = "\n\n⚠️ **Compliance Notice:** AI-generated analysis. Not financial advice."
+            return {"messages": [AIMessage(content=last_msg.content + disclaimer)]}
+    return {"messages": []}
 
-        # Verify we actually got data
-        print(f"--- DEBUG: Tool returned: {str(result)[:50]}... ---")
+# --- 8. EDGES ---
+def router(state):
+    return state["next"]
 
-        tool_outputs.append(
-            ToolMessage(
-                content=str(result),
-                tool_call_id=tool_call["id"]
-            )
-        )
-            
-    return {"messages": tool_outputs}
-
-# --- 4. LOGIC ---
-
-def should_continue(state: State) -> Literal["tools", END]:
+def worker_router(state):
+    # If tool called, go to tools. If text returned, go to Supervisor.
     last_message = state["messages"][-1]
     if last_message.tool_calls:
         return "tools"
-    return END
+    return "Supervisor"
 
-# --- 5. GRAPH BUILD ---
-graph_builder = StateGraph(State)
+def tool_router(state):
+    return state["sender"]
 
-graph_builder.add_node("chatbot", chatbot_node)
-graph_builder.add_node("tools", tool_node)
+workflow = StateGraph(AgentState)
 
-graph_builder.add_edge(START, "chatbot")
-graph_builder.add_conditional_edges("chatbot", should_continue)
-graph_builder.add_edge("tools", "chatbot")
+workflow.add_node("Supervisor", supervisor_node)
+workflow.add_node("Technical_Analyst", analyst_node)
+workflow.add_node("Market_Researcher", researcher_node)
+workflow.add_node("tools", ToolNode([get_cse_stock_price, web_search, get_technical_indicators]))
+workflow.add_node("Compliance_Guardrail", compliance_node)
 
-graph = graph_builder.compile()
+workflow.add_edge(START, "Supervisor")
 
-# --- 6. RUNNER ---
-if __name__ == "__main__":
-    print("\n🚀 DIAGNOSTIC AGENT STARTED. Type 'quit' to exit.")
-    
-    while True:
-        user_input = input("\nUser: ")
-        if user_input.lower() in ["quit", "exit"]:
-            break
-            
-        print("\n--- Starting Cycle ---")
-        try:
-            events = graph.stream(
-                {"messages": [("user", user_input)]},
-                stream_mode="values"
-            )
-            
-            for event in events:
-                msg = event["messages"][-1]
-                
-                # PRINT EVERYTHING (No filtering)
-                if isinstance(msg, AIMessage):
-                    if msg.tool_calls:
-                        print(f"🧠 PLAN: Call {msg.tool_calls[0]['name']}")
-                    else:
-                        print(f"🤖 AGENT: {msg.content}")
-                elif isinstance(msg, ToolMessage):
-                    print(f"🔌 TOOL RESULT: Data received.")
-                    
-        except Exception as e:
-            print(f"🔥 CRITICAL ERROR IN LOOP: {e}")
+workflow.add_conditional_edges("Supervisor", router, {
+    "Technical_Analyst": "Technical_Analyst",
+    "Market_Researcher": "Market_Researcher",
+    "FINISH": "Compliance_Guardrail"
+})
+
+workflow.add_conditional_edges("Technical_Analyst", worker_router, {"tools": "tools", "Supervisor": "Supervisor"})
+workflow.add_conditional_edges("Market_Researcher", worker_router, {"tools": "tools", "Supervisor": "Supervisor"})
+
+workflow.add_conditional_edges("tools", tool_router, {
+    "Technical_Analyst": "Technical_Analyst",
+    "Market_Researcher": "Market_Researcher"
+})
+
+workflow.add_edge("Compliance_Guardrail", END)
+
+graph = workflow.compile()

@@ -1,73 +1,78 @@
-# CSE Smart Scout: Agentic Financial Analyst
+# CSE Smart Scout: Multi-Agent Financial Analyst
 
 ![Status](https://img.shields.io/badge/Status-Prototype-green)
-![Tech](https://img.shields.io/badge/AI-Agentic_Workflow-blue)
+![Architecture](https://img.shields.io/badge/Architecture-Multi--Agent_Supervisor-blueviolet)
 ![Stack](https://img.shields.io/badge/LangGraph-Llama3-orange)
 
-> **A latency-optimized, autonomous AI agent that performs real-time technical analysis and news synthesis for the Colombo Stock Exchange (CSE).**
+> **A hierarchical multi-agent system that orchestrates specialized AI workers to perform real-time technical analysis and market research for the Colombo Stock Exchange (CSE).**
 
-<p align="center">
-  <img src="https://github.com/LasithaAmarasinghe/CSE-Smart-Scout/blob/main/resources/demo.gif" alt="Demo GIF" width="70%" />
-</p>
+![App Screenshot](resources/image.png)
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture: The Supervisor Pattern
 
-![pipeline](resources/pipeline.png)
+Unlike standard chatbots that use a single shared context, **CSE Smart Scout** utilizes a **Hierarchical Supervisor Architecture**. A top-level "Supervisor" agent acts as a router, delegating tasks to specialized worker agents and aggregating their outputs.
+
+```mermaid
+graph TD
+    User(User Query) --> Supervisor{Supervisor Agent}
+    Supervisor -->|Quant Task| Analyst[📉 Technical Analyst]
+    Supervisor -->|News Task| Researcher[📰 Market Researcher]
+    
+    Analyst -->|Fetch Data| Tools[🛠️ CSE & Calc Tools]
+    Researcher -->|Web Search| Tools
+    
+    Tools --> Analyst
+    Tools --> Researcher
+    
+    Analyst -->|Summary| Supervisor
+    Researcher -->|Summary| Supervisor
+    
+    Supervisor -->|Final Answer| Guardrail[🛡️ Compliance Node]
+    Guardrail --> Output(Final Response)
+```
 
 ---
+
 ## 🚀 The Problem
-The Sri Lankan financial market suffers from a **Data Accessibility Gap**.
-1.  **No Public API:** The CSE does not offer a modern public API for developers.
-2.  **Context Blindness:** Generic LLMs (like ChatGPT) hallucinate when asked about local stocks, often confusing "Dialog Axiata" with "Dialog Semiconductor" or mixing Sri Lankan news with Indian/Pakistani market updates.
-3.  **Stale Data:** Standard libraries like `yfinance` frequently return incomplete or delisted data for the CSE.
+The Sri Lankan financial market suffers from a Data Accessibility Gap:
+- **No Public API**: The CSE does not offer a modern public API for developers.
+- **Context Blindness**: Generic LLMs (like ChatGPT) hallucinate when asked about local stocks, often confusing "Dialog Axiata" with "Dialog Semiconductor."
+- **Regulatory Risk**: Standard AI agents lack "Guardrails," often providing hallucinated financial advice, which is a major compliance risk in Fintech.
 
 ## 💡 The Solution
-**CSE Smart Scout** is a custom-built **ReAct Agent** that bypasses these limitations. Instead of relying on static datasets, it acts as a digital research assistant that:
-* **Observes** user intent (e.g., "Compare JKH and DIAL").
-* **Plans** a sequence of actions (Fetch Price A -> Fetch Price B -> Search News -> Synthesize).
-* **Executes** using custom-built tools.
-* **Corrects** itself if data is missing or ambiguous.
-
----
+CSE Smart Scout is not just a chatbot; it is an **Orchestrated Agent System**.
+- **Specialized Workers**: Separates "Quantitative Analysis" (RSI, MACD) from "Qualitative Research" (News, Sentiment) to prevent context pollution.
+- **Stateful Orchestration**: Uses LangGraph to maintain conversation state, allowing the Supervisor to loop through workers until the answer is complete.
+- **Compliance First**: Includes a dedicated post-processing guardrail node that intercepts and sanitizes financial advice before it reaches the user.
 
 ## 🧠 Engineering Journey: Challenges & Solutions
-*This project was not just about connecting APIs; it was about engineering resilience.*
 
-### Challenge 1: The "Black Box" Data
-**The Failure:** My initial attempt using `yfinance` failed because CSE tickers on Yahoo are often outdated or mapped incorrectly (e.g., missing the `.N0000` suffix).
+### Challenge 1: The "Black Box" Data (Reverse Engineering)
+- **The Failure**: Standard libraries like yfinance return incomplete or delisted data for the CSE.
+- **The Solution**: I performed Network Traffic Analysis on the official cse.lk website. I identified their internal private API endpoints, reverse-engineered the payload structure, and wrote a custom Python wrapper (`cse_tools.py`) that mimics a legitimate browser session (Stealth Headers) to fetch tick-by-tick data directly from the source.
 
-**The Engineering Solution:**
-I performed **Network Traffic Analysis** on the official `cse.lk` website using browser developer tools. I identified their internal private API endpoints, reverse-engineered the payload structure, and wrote a custom Python wrapper (`cse_tools.py`) that mimics a legitimate browser session (Stealth Headers) to fetch tick-by-tick data directly from the source.
+### Challenge 2: The "Hallucinating Tool" (Llama-3 Bias)
+- **The Failure**: During testing, the Llama-3 model persistently tried to call a non-existent tool named `brave_search` instead of my custom search tool, causing validation crashes. This was due to the model's training bias.
+- **The Solution**: I implemented a **Namespace Mapping Strategy**. Instead of fighting the model with prompts, I renamed my internal tool to `web_search` and bound it strictly within the Pydantic schema. This aligned the code with the model's internal "intuition," eliminating the hallucination immediately without degrading performance.
 
-### Challenge 2: Hallucination
-**The Failure:** When asked about "Dialog", the agent would often return news about the Sri Lankan Cricket Team (sponsored by Dialog) or unrelated companies in Pakistan (due to keyword overlap in generic news scrapers).
-
-**The Engineering Solution:**
-I implemented a multi-layered filtering system:
-1.  **Fuzzy Symbol Resolution:** A mapped dictionary converts loose terms ("John Keells", "JKH", "Keells") into strict ticker symbols (`JKH.N0000`) before the tool is even called.
-2.  **Strict System Prompts:** Injected a "Context Guardrail" into the LLM's system message: *"If news relates to Cricket or Pakistan, ignore it."*
-3.  **Switch to Tavily:** Migrated from generic scraping (DuckDuckGo) to **Tavily AI Search**, utilizing its `topic="news"` parameter to prioritize financial domains over general web noise.
-
-### Challenge 3: Inference Latency
-**The Failure:** Chaining sequential tool calls (Price -> News -> Analysis) with GPT-4 resulted in 10+ second wait times, which is unacceptable for a trading assistant.
-
-**The Engineering Solution:**
-I switched the inference engine to **Llama-3-70b via Groq's LPU (Language Processing Unit)**. This hardware is optimized for token generation speed. I also leveraged LangGraph's architecture to allow **Parallel Function Calling**, enabling the agent to fetch prices for multiple stocks simultaneously rather than sequentially.
-
----
-
+### Challenge 3: Infinite Loops in Agent Routing
+- **The Failure**: The Supervisor agent would occasionally get stuck in a loop, endlessly asking the Analyst for the same data.
+- **The Solution**: I engineered a **"Worker-Loop" Flow** with strict exit conditions:
+  - **Self-Summarization**: Workers are forced to summarize their own tool outputs into English before passing control back.
+  - **Pydantic Validation**: The Supervisor's routing logic is constrained by a strict `RouteResponse` schema, forcing it to choose between `Technical_Analyst`, `Market_Researcher`, or `FINISH`.
+  - **Recursion Limits**: Configured the graph runtime to handle extended reasoning chains (up to 50 steps) for complex comparative queries.
 
 ## 🛠️ Tech Stack
 
-| Component        | Technology        | Reasoning |
-|------------------|-------------------|-----------|
-| Orchestration    | LangGraph         | Enables cyclic, stateful workflows (loops) which are superior to linear chains for complex reasoning. |
-| Inference        | Groq LPU          | Near-instant inference speed (~300 tokens/sec) for real-time responsiveness. |
-| Model            | Llama-3.3-70b     | The sweet spot between reasoning capability (comparable to GPT-4) and open-source availability. |
-| Frontend         | Streamlit         | Provides a "Glass Box" UI where users can expand the "Reasoning" tab to see the agent's thought process. |
-| Search           | Tavily API        | Optimized specifically for RAG/Agents, reducing noise in search results. |
+| Component      | Technology           | Reasoning |
+|----------------|----------------------|-----------|
+| **Reasoning Orchestration** | LangGraph          | Enables cyclic, stateful multi-agent workflows (Supervisor-Worker pattern). |
+| **Inference**  | Groq LPU             | Near-instant inference speed (~300 tokens/sec) for real-time agent routing. |
+| **Model**      | Llama-3.3-70b        | Chosen for its superior instruction-following capability in complex routing tasks. |
+| **Validation** | Pydantic             | Enforces structured output for the Supervisor, preventing routing errors. |
+| **Search**     | Tavily API           | Optimized specifically for RAG/Agents to reduce noise in financial news search. |
 
 ---
 
@@ -104,20 +109,18 @@ I switched the inference engine to **Llama-3-70b via Groq's LPU (Language Proces
 
 ---
 
-## 📸 Example Workflow
+## 📸 Key Features
 
-**User**: "Compare the price of JKH and DIAL and tell me why JKH is moving."
+- **Glass-Box Reasoning**: Users can expand the "Agent Logic" tab to see the live thought process: Supervisor routing, Tool execution, and raw JSON data.
+  
+- **Compliance Guardrails**: The system automatically detects risky keywords ("buy", "guarantee", "profit") and appends a regulatory disclaimer to the final output.
 
-**Agent Logic (Visible in UI)**:
-
-- **PLAN**: Identify intent "Comparison".
-- **ACTION**: Call `get_cse_stock_price("JKH")` AND `get_cse_stock_price("DIAL")` (Parallel Execution).
-- **OBSERVATION**: Prices received.
-- **ACTION**: Call `search_market_news("JKH financial news")`.
-- **SYNTHESIS**: "JKH is trading at 21.0 (-0.4%) while DIAL is at 29.5. JKH's dip correlates with recent treasury bill yield volatility..."
+- **Multi-Stock Comparison**: The Supervisor autonomously parallelizes tasks, fetching data for multiple tickers (e.g., "Compare JKH and DIAL") in a single workflow.
 
 ## 🔮 Future Roadmap
 
-- **Sentiment Analysis**: Integrate a BERT-based model to score news sentiment (Bullish/Bearish).
-- **RAG Integration**: Connect to a vector database of CSE Annual Reports for "Deep Dive" questions.
+- **Small Language Model (SLM) Optimization**: Quantize the worker agents to run on edge devices (Llama-3-8B) while keeping the Supervisor on the cloud.
+
+- **RAG Integration**: Connect to a vector database of CSE Annual Reports for "Deep Dive" fundamental analysis.
+
 - **WhatsApp Bot**: Deploy the `agent.py` logic via Twilio for mobile access.
